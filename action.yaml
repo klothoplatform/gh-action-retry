@@ -4,11 +4,11 @@ inputs:
   script:
     description: The bash script to run in a retry
     required: true
-  max_attempts:
+  max-attempts:
     description: How many times to try the script before failing.
     required: false
     default: 5
-  sleep_seconds:
+  sleep-seconds:
     description: How long to sleep between attempts.
     required: false
     default: 0
@@ -16,6 +16,12 @@ inputs:
     description: A brief description of this step. Used in error messages.
     required: false
     default: Script
+  working-directory:
+    description: If specified, run the script from this directory.
+    default: .
+  bash-options:
+    description: '"set" options for bash'
+    default: '-euo pipefail'
 runs:
   using: "composite"
   steps:
@@ -23,15 +29,17 @@ runs:
       run: |
         # Check inputs
         function err { echo "::error title=Invalid input::$@" ; had_errs=1 ; }
-        ( echo "$MAX_ATTEMPTS" | grep -q '^-\?[0-9]\+$' ) && [[ "$MAX_ATTEMPTS" -gt 0 ]] || err 'max_attempts must be a positive integer.'
-        ( echo "$SLEEP_SECS" | grep -q '^-\?[0-9]\+$' ) && [[ "$SLEEP_SECS" -ge 0 ]] || err 'sleep_seconds must be a non-negative integer.'
+        ( echo "$MAX_ATTEMPTS" | grep -q '^-\?[0-9]\+$' ) && [[ "$MAX_ATTEMPTS" -gt 0 ]] || err 'max-attempts must be a positive integer.'
+        ( echo "$SLEEP_SECS" | grep -q '^-\?[0-9]\+$' ) && [[ "$SLEEP_SECS" -ge 0 ]] || err 'sleep-seconds must be a non-negative integer.'
         [[ -n "$SCRIPT" ]] || err 'script may not be empty'
+        [[ -d "$WORKING_DIR" ]] || err "working-directory doesn't exist"
         exit $had_errs
       shell: bash
       env:
-        MAX_ATTEMPTS: ${{ inputs.max_attempts }}
-        SLEEP_SECS: ${{ inputs.sleep_seconds }}
+        MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        SLEEP_SECS: ${{ inputs.sleep-seconds }}
         SCRIPT: ${{ inputs.script }}
+        WORKING_DIR: ${{ inputs.working-directory }}
     - name: install user script
       run: |
         # Install script
@@ -40,25 +48,26 @@ runs:
       env:
         USER_SCRIPT: ${{ inputs.script }}
     - name: run
+      working-directory: ${{ inputs.working-directory }}
       run: |
         # Run script with retry loop
         success=false
-        for attempt in $(seq '${{ inputs.max_attempts }}' ); do
+        for attempt in $(seq '${{ inputs.max-attempts }}' ); do
           echo "::group::Attempt #$attempt"
-          if bash "$RUNNER_TEMP/${{ github.action }}" ; then
+          if bash ${{ inputs.bash-options }} "$RUNNER_TEMP/${{ github.action }}" ; then
             echo "::endgroup::"
             success=true
             break
           else
             echo "::endgroup::"
-            if [[ '${{ inputs.sleep_seconds }}' -gt 0 ]]; then
-              echo "Sleeping for ${{ inputs.sleep_seconds }} second(s)"
-              sleep '${{ inputs.sleep_seconds }}'
+            if [[ '${{ inputs.sleep-seconds }}' -gt 0 ]]; then
+              echo "Sleeping for ${{ inputs.sleep-seconds }} second(s)"
+              sleep '${{ inputs.sleep-seconds }}'
             fi
           fi
         done
         if [[ "$success" != true ]]; then
-          echo '::error title=${{ inputs.description }} failed::No successful runs after ${{ inputs.max_attempts }} attempts.'
+          echo '::error title=${{ inputs.description }} failed::No successful runs after ${{ inputs.max-attempts }} attempts.'
           exit 1
         fi
       shell: bash
